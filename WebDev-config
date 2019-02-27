@@ -1,0 +1,54 @@
+//YBVR Quiz Web developer. 
+"use strict";
+var path = require("path");
+var express = require("express");
+var api = express.Router();
+
+api.get("/getConfigUrl/:app/:buildNumber", function(request, response) {
+  var aux = require("../functions/functions");
+  var IPCache = require("../functions/rollingIPCache");
+  var jp = require("jsonpath");
+  var filter = "$..data[?(@.minBuildNumber<=" + request.params.buildNumber + ")]";
+  var allTheData;
+  try{
+    allTheData = JSON.parse(JSON.stringify( aux.maybeLoadDataFile(request.params.app) ) );
+  }
+  catch (e){
+    //error handling
+  }
+  var theRawData = jp.query(allTheData,filter);
+  var requestIP= aux.getRequestIP(request);  
+  IPCache.getIPLocation(requestIP, function (error, ipInfo) {
+    var theData = applyMask(theRawData, request.query, ipInfo);
+    var theUrl = (theData.length>0)? theData[0].configUrl : "/config/obsolete/defaultconfig.yml";
+    if (request.query.debug==null){
+      response.redirect(theUrl);
+    }
+    else {
+      response.status(200);
+      var theRes = {
+        url: theUrl,
+        data: theData,
+        apiloc: ipInfo
+      };
+    }
+    response.json (theRes);
+    response.end();
+  });
+});
+
+function applyMask(jsonDataArray, requestQuery, ipInfo){
+  var robj = new Array();
+  jsonDataArray.forEach(function(element){    
+    element.deviceName = (element.deviceName == "")? 0 : (element.deviceName == requestQuery.deviceName)?1:-100;
+    element.deviceId = (element.deviceId== "")? 0 : (element.deviceId == requestQuery.deviceId)?1:-100;    
+    element.IP = (element.IP=="")? 0 : rangeCheck.inRange(ipInfo.ip,element.IP)?1:-100;
+    element.countryCode = (element.countryCode== "")? 0 : (element.countryCode  == ipInfo.country_code)?1:-100;
+    element.score= scoreMask(element);    
+    robj.push(element);
+  }
+  );
+  robj.sort(compareElement);
+  return robj;
+}
+module.exports=api;
